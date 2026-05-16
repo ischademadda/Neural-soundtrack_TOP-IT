@@ -33,6 +33,7 @@ ALLOWED_HOSTS = []
 INSTALLED_APPS = [
     'main',
     'api',
+    'core',
     'rest_framework',
     'corsheaders',
     'rest_framework_simplejwt.token_blacklist',
@@ -138,3 +139,11 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
 }
+
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+GIGACHAT_CLIENT_ID = os.getenv('GIGACHAT_CLIENT_ID')
+GIGACHAT_CLIENT_SECRET = os.getenv('GIGACHAT_CLIENT_SECRET')
+USE_MOCK_SERVICE = os.getenv('USE_MOCK_SERVICE', 'False').lower() == 'true'
