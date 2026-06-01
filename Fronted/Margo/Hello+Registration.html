@@ -315,6 +315,8 @@
         constructor() {
             this.currentUser = null;
             this.pages = {};
+            this.token = localStorage.getItem('access_token');
+            this.API_URL = 'http://127.0.0.1:8000/api';
             this.init();
         }
 
@@ -514,65 +516,202 @@
             });
         }
 
-        register() {
+        async register() {
             const email = document.getElementById('regEmail').value;
             const password = document.getElementById('regPassword').value;
-            
+
             if (!email || !password) {
-            this.showNotification('Пожалуйста, заполните все поля', 'error');
-            return;
+                this.showNotification('Пожалуйста, заполните все поля', 'error');
+                return;
             }
-            
+
             this.animateButton(document.getElementById('registerBtn'));
-            
-            localStorage.setItem('user', JSON.stringify({ email, password }));
-            this.showNotification('Аккаунт успешно создан!', 'success');
-            
-            setTimeout(() => {
-            this.showPage('login');
-            }, 1000);
+
+            try {
+                const response = await fetch(`${this.API_URL}/auth/register/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    this.token = data.access;
+                    localStorage.setItem('access_token', this.token);
+                    localStorage.setItem('refresh_token', data.refresh);
+                    this.currentUser = data.user;
+                    
+                    this.showNotification('Аккаунт успешно создан!', 'success');
+                    setTimeout(() => {
+                        this.showPage('create');
+                    }, 1000);
+                } else {
+                    this.showNotification(data.detail || 'Ошибка регистрации', 'error');
+                }
+            } catch (error) {
+                this.showNotification('Ошибка подключения к серверу', 'error');
+                console.error('Register error:', error);
+            }
         }
 
-        login() {
+        async login() {
             const email = document.getElementById('loginEmail').value;
             const password = document.getElementById('loginPassword').value;
-            const savedUser = JSON.parse(localStorage.getItem('user'));
-            
+
             if (!email || !password) {
-            this.showNotification('Пожалуйста, заполните все поля', 'error');
-            return;
+                this.showNotification('Пожалуйста, заполните все поля', 'error');
+                return;
             }
-            
-            if (savedUser && savedUser.email === email && savedUser.password === password) {
-            this.currentUser = { email, name: email.split('@')[0] };
+
             this.animateButton(document.getElementById('loginBtn'));
-            
-            this.showNotification(`Добро пожаловать, ${this.currentUser.name}!`, 'success');
-            
-            setTimeout(() => {
-                const usernameDisplay = document.getElementById('usernameDisplay');
-                if (usernameDisplay) {
-                usernameDisplay.textContent = `${this.currentUser.name} →`;
+
+            try {
+                const response = await fetch(`${this.API_URL}/auth/login/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    this.token = data.access;
+                    localStorage.setItem('access_token', this.token);
+                    localStorage.setItem('refresh_token', data.refresh);
+                    this.currentUser = data.user;
+                    
+                    this.showNotification(`Добро пожаловать, ${data.user.email.split('@')[0]}!`, 'success');
+                    
+                    const usernameDisplay = document.getElementById('usernameDisplay');
+                    if (usernameDisplay) {
+                        usernameDisplay.textContent = `${data.user.email.split('@')[0]} →`;
+                    }
+                    
+                    setTimeout(() => {
+                        this.showPage('create');
+                    }, 1000);
+                } else {
+                    this.showNotification('Неверный email или пароль', 'error');
                 }
-                this.showPage('create');
-            }, 1000);
-            } else {
-            this.showNotification('Неверный email или пароль', 'error');
+            } catch (error) {
+                this.showNotification('Ошибка подключения к серверу', 'error');
+                console.error('Login error:', error);
             }
         }
 
-        generatePlaylist() {
+        async generatePlaylist() {
             const mood = document.getElementById('moodInput').value;
-
+            
             if (!mood.trim()) {
-            this.showNotification('Пожалуйста, опиши своё настроение', 'error');
-            return;
+                this.showNotification('Пожалуйста, опиши своё настроение', 'error');
+                return;
             }
 
-            this.animateButton(document.getElementById('generatePlaylistBtn'));
-            this.showNotification('Спасибо! Твоё настроение сохранено', 'success');
+            const btn = document.getElementById('generatePlaylistBtn');
+            const originalBtnText = btn.innerHTML;
+            btn.innerHTML = 'Создаю плейлист... <span class="loading"></span>';
+            btn.disabled = true;
 
-            document.getElementById('moodInput').value = '';
+            try {
+                const token = localStorage.getItem('access_token'); // Получаем токен из localStorage
+                
+                // Запрос к Backend API
+                const response = await fetch('http://127.0.0.1:8000/api/music/search/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': token ? `Bearer ${token}` : ''
+                    },
+                    body: JSON.stringify({ query: mood })
+                });
+
+                const data = await response.json();
+                console.log('API Response:', data); // Для отладки
+
+                if (response.ok && data.status === 'success') {
+                    this.showNotification('Плейлист успешно создан!', 'success');
+                    this.displayPlaylist(data.data);
+                    document.getElementById('moodInput').value = '';
+                } else {
+                    this.showNotification(data.data?.message || 'Ошибка при создании плейлиста', 'error');
+                }
+            } catch (error) {
+                console.error('Playlist error:', error);
+                this.showNotification('Ошибка подключения к серверу', 'error');
+            } finally {
+                btn.innerHTML = originalBtnText;
+                btn.disabled = false;
+            }
+        }
+
+        displayPlaylist(data) {
+            const resultDiv = document.getElementById('playlistResult');
+            
+            if (!data || (!data.tracks && data.message)) { // Если нет данных или пришла ошибка
+                resultDiv.innerHTML = `
+                    <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 16px; margin-top: 16px; animation: fadeInUp 0.6s ease;">
+                        <p style="margin: 0; text-align: center;">${data.message || 'По вашему запросу ничего не найдено'}</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Формируем HTML для треков и плейлистов
+            let html = `
+                <div style="background: rgba(255,255,255,0.1); padding: 24px; border-radius: 16px; margin-top: 16px; animation: fadeInUp 0.6s ease;">
+                    <h3 style="margin-bottom: 16px; color: #a78bfa; text-align: center;">🎵 Ваш плейлист</h3>
+                    
+                    <div style="margin-bottom: 24px;">
+                        <h4 style="margin-bottom: 12px; color: #c4b5fd; font-size: 18px;">🎶 Треки:</h4>
+                        <ul style="list-style: none; padding: 0;">
+            `;
+
+            // Добавляем треки
+            if (data.tracks && data.tracks.length > 0) {
+                data.tracks.forEach((track, index) => {
+                    html += `
+                        <li style="padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 8px;">
+                            <strong style="color: white;">${index + 1}. ${track.name}</strong><br>
+                            <span style="color: rgba(255,255,255,0.7); font-size: 14px;">${track.artist}</span><br>
+                            <a href="${track.link}" target="_blank" style="color: #a78bfa; font-size: 14px; text-decoration: none;">🔗 Открыть в Яндекс Музыке →</a>
+                        </li>
+                    `;
+                });
+            }
+
+            html += `
+                        </ul>
+                    </div>
+                    
+                    <div>
+                        <h4 style="margin-bottom: 12px; color: #c4b5fd; font-size: 18px;">📀 Плейлисты:</h4>
+                        <ul style="list-style: none; padding: 0;">
+            `;
+
+            // Добавляем плейлисты
+            if (data.playlists && data.playlists.length > 0) {
+                data.playlists.forEach((playlist, index) => {
+                    html += `
+                        <li style="padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 8px;">
+                            <strong style="color: white;">${playlist.name}</strong><br>
+                            <a href="${playlist.link}" target="_blank" style="color: #a78bfa; font-size: 14px; text-decoration: none;">🔗 Открыть →</a>
+                        </li>
+                    `;
+                });
+            }
+
+            html += `
+                        </ul>
+                    </div>
+                </div>
+            `;
+
+            resultDiv.innerHTML = html;
         }
 
         animateButton(btn) {
